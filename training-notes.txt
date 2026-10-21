@@ -1,0 +1,123 @@
+Bank Net 2 — v4.7
+
+Train → Inputs & numbers opens the in-app guide.
+
+Architecture: 45,316 weights; 44 table features; a shared 32→48→48 opponent encoder; two global-conditioned attention heads; mean, max and active-player pooling; a residual 284→96→96 trunk; four outputs. Opponent rows are pooled as a set, supporting 2–12 players without padding or a fixed seat ordering.
+
+Six selected training workers all generate games and all compute gradients. One briefly aggregates the weighted gradient sums and applies a single Adam step. Actual CPU-core scheduling is controlled by Safari. Training workers and search workers are independent settings.
+
+Warm-up imitates a heuristic until at least 8,192 samples and eight updates. It does not imitate full v3.5 searches. The previous all-rivals-active waiting heuristic is removed from the neural warm-up teacher. PPO then learns terminal win shares against scripts, self-play and snapshots. Only non-forced actions normalize PPO advantages. The value targets are bounded terminal returns; positive KL guards excessive policy changes, and gradients are clipped.
+
+Policy BANK/CONTINUE are action preferences, not winning odds. The value head and two auxiliary action-value heads learn uncalibrated training-policy outcomes. Exact response rules override actions; the auxiliary action values do not choose actions. New value-head priors start at 1/playerCount rather than 50% for every table.
+
+Updates: completed collection/training batches. Episodes: completed simulated games committed into those batches. Samples: decision positions collected once, even if two training epochs reuse them. Weights: adjustable learned numbers. Loss: combined fitting objective, not a strength score. Entropy H: 0 certain to ln(2)≈0.693 evenly split policy. KL: policy movement versus collection weights, not win difference. BANK rate: collected action frequency including exact overrides, not a win rate. Gradient norm: size of the raw mean gradient before clipping; internal diagnostic. Clipped fraction: fraction of non-forced PPO samples at the clipping boundary; internal diagnostic. Value error: mean squared value prediction error on collected terminal returns; internal diagnostic.
+
+Minimum/maximum players set the table range. Session seconds bounds the session; incomplete batches are discarded. Evaluation uses the selected player range with balanced 10/15/20-round fixtures. Net/reference are paired mean terminal win shares against scripts; reference is a heuristic, not v3.5. Export/import preserves compatible weights and optimizer state. Reset retains game scores. Bank Net 1 checkpoints are architecturally incompatible; their original storage slot is not overwritten.
+
+Signed logarithm-like score normalization: asinh(score/100)/4. Reach features are exact up to a target of 2,048, otherwise marked lower/upper bounds on a coarse integer grid. Seven personality-family probabilities summarize the existing opponent model; they are estimates, not facts. Modeled banking chances integrate that model and are not exact dice probabilities. Private action-window bookkeeping is excluded; only public state enters the network.
+
+All global inputs in order:
+1. asinh(pot/100)/4
+2. remainingRounds/20
+3. totalRounds/20
+4. round/20
+5. playerCount/12
+6. activeFraction
+7. safePhase
+8. asinh(rollCount)/4
+9. normalizedOwnScore
+10. normalizedHighestRivalGap
+11. normalizedPotMinusStrictLeadTarget
+12. ownActive
+13. nextBustProbability
+14. doublesProbability
+15. strictLeadReachLower
+16. strictLeadReachUpper
+17. strictLeadReachExact
+18. tieTargetReachLower
+19. tieTargetReachUpper
+20. nextDangerRollStrictLeadProbability
+21. bankingWouldStrictlyLead
+22. rivalsAheadFraction
+23. activeRivalsAheadFraction
+24. normalizedHighestActiveRivalGap
+25. lastBankExists
+26. rankFraction
+27. winShareIfBustNow
+28. normalizedHighestBankedRivalGap
+29. finalRound
+30. lastActive
+31. tiedWithHighestRival
+32. highestRivalTieFraction
+33. fairShareBaseline
+34. activeRivalFraction
+35. fractionRivalsBelowBankNowScore
+36. winShareIfEveryoneBanksCurrentPot
+37. normalizedPotentialLeaderGap
+38. doublePotReachLower
+39. doublePotReachUpper
+40. meanNormalizedRivalGap
+41. activeRivalsTiedOrAheadFraction
+42. logRemainingRoundsAfterThis
+43. lastBankIsOwnSeat
+44. reachStrictlyAheadOfBankedRivalsLower
+
+All per-opponent inputs in order:
+1. normalizedScoreGap
+2. active
+3. normalizedBankedThisRound
+4. rivalBankWindowOpen
+5. lastBankActor
+6. rivalIsCurrentHighestScore
+7. reachAheadOfRivalLower
+8. reachAheadOfRivalUpper
+9. sameCurrentScore
+10. normalizedPotentialScoreGap
+11. log1p(modelObservations)/6
+12. smoothedBankRate
+13. meanNormalizedBankPot
+14. stdNormalizedBankPot
+15. normalizedLastBankPot
+16. posteriorFixed
+17. posteriorAdaptive
+18. posteriorChaser
+19. posteriorReactive
+20. posteriorMatcher
+21. posteriorStrategic
+22. posteriorNoisy
+23. posteriorExpectedLogBase/8
+24. posteriorEntropy/log(77)
+25. reachAheadOfRivalExact
+26. modeledBankChanceNow
+27. modeledBankChanceAfterDouble
+28. modeledBankChanceStdAcrossHypotheses
+29. bankNowWouldPassRival
+30. ownCurrentScoreStrictlyAhead
+31. activeRivalTiedOrAhead
+32. observationConfidenceCappedAt30
+
+The package includes model-spec.json for exact architecture, loss and feature names. Training capacity and correctness tests do not prove game strength; benchmark saved checkpoints against v3.5 before replacing it.
+
+
+v4.5.1 offline patch: training, evaluation and search workers start from self-contained data URLs. The training dependencies are embedded in index.html and have no importScripts calls. Offline readiness verifies a real worker handshake in addition to required cached files. JSON exports use local data URLs; imports use FileReader. Worker jobs have a 60-second inactivity timeout, reset by progress. Bank Net 2 weights, optimizer, storage key and all strategy tables are unchanged. Update the same GitHub Pages app to retain training; export a model before updating as a backup.
+
+
+v4.6 stability update: default range 3–8 players; 36 fresh games per batch; fine-tuning learning rate 0.00005 with slow sample-count decay and a configurable 0.00002/0.00005/0.0001 base. Warm-up remains 0.0002. Whole-batch Bernoulli KL is audited after each epoch: stop above 0.01, restore epoch weights and optimizer above 0.025. Gradient clipping and sampled PPO clipping remain. Retain up to 12 opponent snapshots, a protected best, and mixed scripts. A quarter of games use current-network self-play; ten percent use synthetic starts. A small constant imitation anchor remains.
+
+Benchmarks default to 10,000 games in the selected range, with deterministic table/round/seat fixtures and random opponents whose noise is keyed by public round/roll/seat. The same fixtures compare latest and protected best as alternative focal policies against scripts, not a head-to-head tournament. The heuristic reference remains separate. First-place ties split reward. Approximate 95 percent normal sampling intervals describe mean win share and paired differences. Fixed-seed improvements require an equal-size independent fresh confirmation before promotion. Significant drops beyond two percentage points in both tests restore the protected best with its optimizer and halve fine-tuning. Tests below 660 games never promote or roll back. Auto benchmark defaults every 3,600 committed episodes, pauses the training clock and uses the selected test size; manual-only is available. Keep the app foregrounded. Existing Bank Net 2 models and storage keys are preserved; first loaded trained weights are protected provisionally. Latest and best, settings, 120 benchmark summaries, last benchmark records, optimizer and league are exported together. Play defaults to protected best once available; Progress & models can switch to latest, restore best or export results. Exact rules and all other engines are unchanged.
+
+Large benchmarks save completed blocks of up to 360 paired fixtures. Pause or backgrounding retains those blocks. Benchmark resumes them when candidate, protected best, selected range, round lengths and requested game count match. Starting training discards partial benchmark work because its candidate is about to change. Normalized advantages use separate per-table statistics, excluding forced actions. Retained snapshot opponents mix greedy and stochastic actions, covering the deployed decision style.
+
+
+v4.7 training quality update: gameplay uses the exact same 45,316-parameter Bank Net 2 architecture, forward pass and exact-rule safeguards. No lookahead, tree search, rollout or ensemble is added to neural recommendations. Existing weights, optimizers, protected best and legacy benchmark history remain compatible.
+
+Collected games use 30% all-current-network self-play. Other tables mix current agents, up to twelve saved checkpoints, the protected best and scripted styles. Each frozen or scripted rival gets a smoothed difficulty estimate from its win share relative to a designated current-policy learner, separately by table size with a global fallback. Sampling favors difficult rivals with nonzero coverage for all rivals. Scores decay as observations accumulate; no perfect-opponent knowledge is assumed.
+
+Light paired training is the default: one non-forced decision is reservoir-sampled from each worker collection batch. BANK and CONTINUE are both simulated to terminal results against the same frozen lineup using identical random worlds. Two worlds use a uniform 36-face stream and a marginal-preserving offset of eighteen; Extra uses four worlds; Off disables it. Each branch independently follows legal reaction windows and preserves BigInt scores. Only future dice are resampled; the public past remains unchanged. Root features never include pending decisions, future dice or policy identity.
+
+Empirical action values train both auxiliary heads. A smooth expected-action gradient using the shrunken paired difference supplements PPO with a nominal batch-average weight of 0.08. The preference term clips desired action probability growth at the existing 20% threshold. Ordinary PPO clipping, full-batch KL checks, epoch-plus-optimizer rollback and champion protection remain. Two or four worlds do not establish a statistically certain action label; no hard winner label is manufactured. Paired positions/worlds/same-outcome fraction and actual learning rate appear on Train. Branch continuations add training cost only and are not counted as full collected episodes.
+
+Benchmarks retain protocol bankbench-46 and the exact original scripted evaluation implementation: opponent sampling, thresholds, dice, seats, opponent noise and first-place tie scoring are unchanged. Existing v4.6 history remains comparable and stays on the same curve. Neural self-play, historical neural opponents and adaptive rival selection are used in training only. Fresh confirmation and best-checkpoint protection remain.
+
+
+Runtime and mathematical tests verify correctness and variance reduction in limited fixed-policy scenarios. They do not prove that every trained checkpoint is stronger. Continue to use independent validation, compare fresh candidates with their protected best, and export a backup before replacing the app. All simulation and training code remains embedded and cached for offline operation.
